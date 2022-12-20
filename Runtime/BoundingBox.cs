@@ -651,4 +651,397 @@ namespace Cm107.Grid
             }
         }
     }
+
+    public struct BoundingBox2D
+    {
+        public Vector2 v0;
+        public Vector2 v1;
+
+        public override string ToString()
+        {
+            return $"BoundingBox2D({v0} ~ {v1})";
+        }
+
+        public static BoundingBox2D operator +(BoundingBox2D bbox, Vector2 other) => new BoundingBox2D
+        {
+            v0 = bbox.v0 + other,
+            v1 = bbox.v1 + other
+        };
+
+        public static BoundingBox2D operator -(BoundingBox2D bbox, Vector2 other) => new BoundingBox2D
+        {
+            v0 = bbox.v0 - other,
+            v1 = bbox.v1 - other
+        };
+
+        public float xmin
+        {
+            get { return this.v0.x; }
+        }
+
+        public float xmax
+        {
+            get { return this.v1.x; }
+        }
+
+        public float ymin
+        {
+            get { return this.v0.y; }
+        }
+
+        public float ymax
+        {
+            get { return this.v1.y; }
+        }
+
+        public Vector2 center
+        {
+            get { return 0.5f * (this.v0 + this.v1); }
+        }
+
+        public BoundingBoxInt2D ToInt()
+        {
+            Vector2Int convert(Vector2 vec, bool ceil = false)
+            {
+                if (!ceil)
+                    return new Vector2Int(Mathf.FloorToInt(vec.x), Mathf.FloorToInt(vec.y));
+                else
+                    return new Vector2Int(Mathf.CeilToInt(vec.x), Mathf.CeilToInt(vec.y));
+            }
+            return new BoundingBoxInt2D
+            {
+                v0 = convert(this.v0, ceil: false),
+                v1 = convert(this.v1, ceil: true)
+            };
+        }
+
+        public class WorkingValues
+        {
+            public float? xmin = null;
+            public float? xmax = null;
+            public float? ymin = null;
+            public float? ymax = null;
+
+            public WorkingValues() { }
+
+            public bool isNull
+            {
+                get
+                {
+                    return this.xmin == null || this.xmax == null
+                        || this.ymin == null || this.ymax == null;
+                }
+            }
+
+            public void Update(Vector2 point)
+            {
+                if (this.xmin == null || point.x < this.xmin.Value) this.xmin = point.x;
+                if (this.xmax == null || point.x > this.xmax.Value) this.xmax = point.x;
+
+                if (this.ymin == null || point.y < this.ymin.Value) this.ymin = point.y;
+                if (this.ymax == null || point.y > this.ymax.Value) this.ymax = point.y;
+            }
+
+            public BoundingBox2D ToBoundingBox()
+            {
+                if (this.isNull)
+                    throw new Exception("One of the working values are still null.");
+                Vector2 vmin = new Vector2(x: xmin.Value, y: ymin.Value);
+                Vector2 vmax = new Vector2(x: xmax.Value, y: ymax.Value);
+                return new BoundingBox2D { v0 = vmin, v1 = vmax };
+            }
+        }
+
+        static public BoundingBox2D FromVertices(IEnumerable<Vector2> vertices, Matrix4x4? mat = null)
+        {
+            WorkingValues workingValues = new WorkingValues();
+            if (mat == null)
+            {
+                foreach (Vector2 vert in vertices)
+                    workingValues.Update(vert);
+            }
+            else
+            {
+                foreach (Vector2 vert in vertices)
+                    workingValues.Update(mat.Value.MultiplyPoint(vert));
+            }
+
+            return workingValues.ToBoundingBox();
+        }
+
+        public bool ContainsX(float val, bool inclusive = true)
+        {
+            if (inclusive)
+            {
+                if (val < this.v0.x || val > this.v1.x) return false;
+            }
+            else
+            {
+                if (val <= this.v0.x || val >= this.v1.x) return false;
+            }
+            return true;
+        }
+
+        public bool ContainsY(float val, bool inclusive = true)
+        {
+            if (inclusive)
+            {
+                if (val < this.v0.y || val > this.v1.y) return false;
+            }
+            else
+            {
+                if (val <= this.v0.y || val >= this.v1.y) return false;
+            }
+            return true;
+        }
+
+        public bool Contains(Vector2 position, bool inclusive = true)
+        {
+            if (inclusive)
+            {
+                if (position.x < this.v0.x || position.x > this.v1.x) return false;
+                if (position.y < this.v0.y || position.y > this.v1.y) return false;
+            }
+            else
+            {
+                if (position.x <= this.v0.x || position.x >= this.v1.x) return false;
+                if (position.y <= this.v0.y || position.y >= this.v1.y) return false;
+            }
+            return true;
+        }
+
+        public static BoundingBox2D Union(BoundingBox2D bbox0, BoundingBox2D bbox1)
+        {
+            WorkingValues workingValues = new WorkingValues();
+            foreach (Vector2 point in new Vector2[] { bbox0.v0, bbox0.v1, bbox1.v0, bbox1.v1 })
+                workingValues.Update(point);
+            return workingValues.ToBoundingBox();
+        }
+
+        public IntervalFloat xInterval
+        {
+            get { return new IntervalFloat(min: this.v0.x, max: this.v1.x); }
+        }
+
+        public IntervalFloat yInterval
+        {
+            get { return new IntervalFloat(min: this.v0.y, max: this.v1.y); }
+        }
+
+        public static BoundingBox2D? Intersection(BoundingBox2D bbox0, BoundingBox2D bbox1)
+        {
+            IntervalFloat? xIntersection = IntervalFloat.Intersection(bbox0.xInterval, bbox1.xInterval);
+            if (xIntersection == null) return null;
+            IntervalFloat? yIntersection = IntervalFloat.Intersection(bbox0.yInterval, bbox1.yInterval);
+            if (yIntersection == null) return null;
+            return new BoundingBox2D
+            {
+                v0 = new Vector2(
+                    x: xIntersection.Value.min,
+                    y: yIntersection.Value.min
+                ),
+                v1 = new Vector2(
+                    x: xIntersection.Value.max,
+                    y: yIntersection.Value.max
+                )
+            };
+        }
+
+        public float area
+        {
+            get
+            {
+                Vector3 diff = this.v1 - this.v0;
+                return diff.x * diff.y;
+            }
+        }
+    }
+
+    public struct BoundingBoxInt2D
+    {
+        public Vector2Int v0;
+        public Vector2Int v1;
+
+        public override string ToString()
+        {
+            return $"BoundingBoxInt2D({v0} ~ {v1})";
+        }
+
+        public static BoundingBoxInt2D operator +(BoundingBoxInt2D bbox, Vector2Int other) => new BoundingBoxInt2D
+        {
+            v0 = bbox.v0 + other,
+            v1 = bbox.v1 + other
+        };
+
+        public static BoundingBoxInt2D operator -(BoundingBoxInt2D bbox, Vector2Int other) => new BoundingBoxInt2D
+        {
+            v0 = bbox.v0 - other,
+            v1 = bbox.v1 - other
+        };
+
+        public int xmin
+        {
+            get { return this.v0.x; }
+        }
+
+        public int xmax
+        {
+            get { return this.v1.x; }
+        }
+
+        public int ymin
+        {
+            get { return this.v0.y; }
+        }
+
+        public int ymax
+        {
+            get { return this.v1.y; }
+        }
+
+        public BoundingBox2D ToFloat()
+        {
+            return new BoundingBox2D
+            {
+                v0 = (Vector2)this.v0,
+                v1 = (Vector2)this.v1
+            };
+        }
+
+        public class WorkingValues
+        {
+            public int? xmin = null;
+            public int? xmax = null;
+            public int? ymin = null;
+            public int? ymax = null;
+
+            public WorkingValues() { }
+
+            public bool isNull
+            {
+                get
+                {
+                    return this.xmin == null || this.xmax == null
+                        || this.ymin == null || this.ymax == null;
+                }
+            }
+
+            public void Update(Vector2Int point)
+            {
+                if (this.xmin == null || point.x < this.xmin.Value) this.xmin = point.x;
+                if (this.xmax == null || point.x > this.xmax.Value) this.xmax = point.x;
+
+                if (this.ymin == null || point.y < this.ymin.Value) this.ymin = point.y;
+                if (this.ymax == null || point.y > this.ymax.Value) this.ymax = point.y;
+            }
+
+            public BoundingBoxInt2D ToBoundingBoxInt()
+            {
+                if (this.isNull)
+                    throw new Exception("One of the working values are still null.");
+                Vector2Int vmin = new Vector2Int(x: xmin.Value, y: ymin.Value);
+                Vector2Int vmax = new Vector2Int(x: xmax.Value, y: ymax.Value);
+                return new BoundingBoxInt2D { v0 = vmin, v1 = vmax };
+            }
+        }
+
+        static public BoundingBoxInt2D FromGridCoordList(List<Vector2Int> gridCoordList)
+        {
+            if (gridCoordList.Count == 0)
+                throw new System.Exception("Cannot create bounding box from empty list.");
+
+            WorkingValues workingValues = new WorkingValues();
+            foreach (Vector2Int coord in gridCoordList)
+                workingValues.Update(coord);
+
+            return workingValues.ToBoundingBoxInt();
+        }
+
+        public bool ContainsX(int val, bool inclusive = true)
+        {
+            if (inclusive)
+            {
+                if (val < this.v0.x || val > this.v1.x) return false;
+            }
+            else
+            {
+                if (val <= this.v0.x || val >= this.v1.x) return false;
+            }
+            return true;
+        }
+
+        public bool ContainsY(int val, bool inclusive = true)
+        {
+            if (inclusive)
+            {
+                if (val < this.v0.y || val > this.v1.y) return false;
+            }
+            else
+            {
+                if (val <= this.v0.y || val >= this.v1.y) return false;
+            }
+            return true;
+        }
+
+        public bool Contains(Vector2Int coord, bool inclusive = true)
+        {
+            if (inclusive)
+            {
+                if (coord.x < this.v0.x || coord.x > this.v1.x) return false;
+                if (coord.y < this.v0.y || coord.y > this.v1.y) return false;
+            }
+            else
+            {
+                if (coord.x <= this.v0.x || coord.x >= this.v1.x) return false;
+                if (coord.y <= this.v0.y || coord.y >= this.v1.y) return false;
+            }
+            return true;
+        }
+
+        public static BoundingBoxInt2D Union(BoundingBoxInt2D bbox0, BoundingBoxInt2D bbox1)
+        {
+            WorkingValues workingValues = new WorkingValues();
+            foreach (Vector2Int point in new Vector2Int[] { bbox0.v0, bbox0.v1, bbox1.v0, bbox1.v1 })
+                workingValues.Update(point);
+            return workingValues.ToBoundingBoxInt();
+        }
+
+        public IntervalInt xInterval
+        {
+            get { return new IntervalInt(min: this.v0.x, max: this.v1.x); }
+        }
+
+        public IntervalInt yInterval
+        {
+            get { return new IntervalInt(min: this.v0.y, max: this.v1.y); }
+        }
+
+        public static BoundingBoxInt2D? Intersection(BoundingBoxInt2D bbox0, BoundingBoxInt2D bbox1)
+        {
+            IntervalInt? xIntersection = IntervalInt.Intersection(bbox0.xInterval, bbox1.xInterval);
+            if (xIntersection == null) return null;
+            IntervalInt? yIntersection = IntervalInt.Intersection(bbox0.yInterval, bbox1.yInterval);
+            if (yIntersection == null) return null;
+            return new BoundingBoxInt2D
+            {
+                v0 = new Vector2Int(
+                    x: xIntersection.Value.min,
+                    y: yIntersection.Value.min
+                ),
+                v1 = new Vector2Int(
+                    x: xIntersection.Value.max,
+                    y: yIntersection.Value.max
+                )
+            };
+        }
+
+        public int area
+        {
+            get
+            {
+                Vector2Int diff = this.v1 - this.v0;
+                return diff.x * diff.y;
+            }
+        }
+    }
 }
